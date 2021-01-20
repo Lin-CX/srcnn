@@ -8,6 +8,8 @@ import torchvision.transforms as transforms
 
 import time
 from PIL import Image
+import matplotlib.pyplot as plt
+import numpy as np
 
 
 class SRCNN(nn.Module):
@@ -42,8 +44,8 @@ print('current device: ', dev)
 crop_size = 256
 batch_size = 4
 lr = 1.5e-2
-PATH = './net_params.pkl'
-is_training = False
+PATH = './net_params_srcnn.pkl'
+is_training = True
 
 # preprocessing
 tsf = transforms.Compose([transforms.CenterCrop(crop_size),
@@ -53,7 +55,11 @@ target_tsf = transforms.Compose([transforms.CenterCrop(crop_size),
                         transforms.ToTensor()])
 
 trainSet = My_Dataset(root='./BSDS300', transform=tsf, target_transform=target_tsf)
+# split for train set and val. set
+trainSet, valSet = torch.utils.data.random_split(trainSet, [180, 20])
+
 trainLoader = torch.utils.data.DataLoader(trainSet, batch_size=batch_size, shuffle=True)
+valLoader = torch.utils.data.DataLoader(valSet, batch_size=batch_size, shuffle=True)
 
 testSet = My_Dataset(root='./BSDS300', train=False, transform=tsf, target_transform=target_tsf)
 testLoader = torch.utils.data.DataLoader(testSet, batch_size=4, shuffle=False)
@@ -71,7 +77,10 @@ optimizer = torch.optim.SGD(srcnn.parameters(), lr=lr, momentum=0.9)
 t_start = time.time()
 
 if is_training:
-    for epoch in range(1500):
+    loss_vir = []
+    y_axis = 0
+
+    for epoch in range(2000):
 
         running_loss = 0.0
         for i, data in enumerate(trainLoader, 0):
@@ -96,11 +105,32 @@ if is_training:
             running_loss += loss.item()
 
         if epoch % 20 == 19:
-            print("[%d]\tloss:\t%f" % (epoch+1, running_loss), end="\t")
+            """print("[%d]\tloss:\t%f" % (epoch+1, running_loss), end="\t")
             t_end = time.time()
             print("elapsed: %f sec" % (t_end-t_start))
             #print('elapsed:', t_end-t_start, 'sec')
+            loss_vir.append(running_loss)
+            y_axis += 1
+            t_start = t_end"""
+
+            print("[%d]\tloss: %f" % (epoch+1, running_loss), end=", ")
+
+            loss = 0.0
+            with torch.no_grad():
+                for data in valLoader:
+                    images, labels_val = data[0].to(dev), data[1].to(dev)
+                    outputs_val = net(images)
+                    loss = mse_loss(outputs_val, labels_val)
+            loss_vir.append(loss)
+            y_axis += 1
+            print("val loss: %f" % loss, end=", ")
+
+            t_end = time.time()
+            print("elapsed: %.2f sec" % (t_end-t_start))
             t_start = t_end
+
+
+            # 
             if epoch % 100 == 99:
                 img_index = 0
                 temp = tensor_to_PIL(inputs[img_index])
@@ -112,6 +142,10 @@ if is_training:
 
 
     print("Finished Training")
+
+    # loss visualization
+    plt.plot(np.arange(y_axis), loss_vir)
+    plt.show()
 
     # save the parameters in network
     torch.save(net.state_dict(),PATH)
@@ -132,7 +166,7 @@ with torch.no_grad():
         loss = mse_loss(outputs, labels)
         total_loss += loss.item()
 
-        if True:
+        if False:
             img_index = 3
             temp = tensor_to_PIL(images[img_index])
             temp.save('./input.jpg')
